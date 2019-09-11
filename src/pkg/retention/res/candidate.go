@@ -16,7 +16,11 @@ package res
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"github.com/goharbor/harbor/src/common/utils/log"
+
+	"github.com/pkg/errors"
 )
 
 const (
@@ -29,12 +33,31 @@ const (
 // Repository of candidate
 type Repository struct {
 	// Namespace
-	Namespace string
+	Namespace string `json:"namespace"`
 	// Repository name
-	Name string
+	Name string `json:"name"`
 	// So far we need the kind of repository and retrieve candidates with different APIs
 	// TODO: REMOVE IT IN THE FUTURE IF WE SUPPORT UNIFIED ARTIFACT MODEL
-	Kind string
+	Kind string `json:"kind"`
+}
+
+// ToJSON marshals repository to JSON string
+func (r *Repository) ToJSON() (string, error) {
+	jsonData, err := json.Marshal(r)
+	if err != nil {
+		return "", errors.Wrap(err, "marshal reporitory")
+	}
+
+	return string(jsonData), nil
+}
+
+// FromJSON constructs the repository from json data
+func (r *Repository) FromJSON(jsonData string) error {
+	if len(jsonData) == 0 {
+		return errors.New("empty json data to construct repository")
+	}
+
+	return json.Unmarshal([]byte(jsonData), r)
 }
 
 // Candidate for retention processor to match
@@ -50,6 +73,8 @@ type Candidate struct {
 	Kind string
 	// Tag info
 	Tag string
+	// Digest
+	Digest string
 	// Pushed time in seconds
 	PushedTime int64
 	// Pulled time in seconds
@@ -62,7 +87,10 @@ type Candidate struct {
 
 // Hash code based on the candidate info for differentiation
 func (c *Candidate) Hash() string {
-	raw := fmt.Sprintf("%s:%s/%s:%s", c.Kind, c.Namespace, c.Repository, c.Tag)
+	if c.Digest == "" {
+		log.Errorf("Lack Digest of Candidate for %s/%s:%s", c.Namespace, c.Repository, c.Tag)
+	}
+	raw := fmt.Sprintf("%s:%s/%s:%s", c.Kind, c.Namespace, c.Repository, c.Digest)
 
 	return base64.StdEncoding.EncodeToString([]byte(raw))
 }

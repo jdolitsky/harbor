@@ -23,6 +23,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gomodule/redigo/redis"
+	"github.com/pkg/errors"
+
 	"github.com/goharbor/harbor/src/jobservice/api"
 	"github.com/goharbor/harbor/src/jobservice/common/utils"
 	"github.com/goharbor/harbor/src/jobservice/config"
@@ -31,6 +34,7 @@ import (
 	"github.com/goharbor/harbor/src/jobservice/hook"
 	"github.com/goharbor/harbor/src/jobservice/job"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/gc"
+	"github.com/goharbor/harbor/src/jobservice/job/impl/notification"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/replication"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/sample"
 	"github.com/goharbor/harbor/src/jobservice/job/impl/scan"
@@ -41,8 +45,7 @@ import (
 	"github.com/goharbor/harbor/src/jobservice/worker"
 	"github.com/goharbor/harbor/src/jobservice/worker/cworker"
 	"github.com/goharbor/harbor/src/pkg/retention"
-	"github.com/gomodule/redigo/redis"
-	"github.com/pkg/errors"
+	"github.com/goharbor/harbor/src/pkg/scheduler"
 )
 
 const (
@@ -97,7 +100,7 @@ func (bs *Bootstrap) LoadAndRun(ctx context.Context, cancel context.CancelFunc) 
 		// Add {} to namespace to void slot issue
 		namespace := fmt.Sprintf("{%s}", cfg.PoolConfig.RedisPoolCfg.Namespace)
 		// Get redis connection pool
-		redisPool := bs.getRedisPool(cfg.PoolConfig.RedisPoolCfg.RedisURL)
+		redisPool := bs.getRedisPool(cfg.PoolConfig.RedisPoolCfg)
 
 		// Do data migration if necessary
 		rdbMigrator := migration.New(redisPool, namespace)
@@ -239,12 +242,14 @@ func (bs *Bootstrap) loadAndRunRedisWorkerPool(
 			// Only for debugging and testing purpose
 			job.SampleJob: (*sample.Job)(nil),
 			// Functional jobs
-			job.ImageScanJob:         (*scan.ClairJob)(nil),
-			job.ImageScanAllJob:      (*scan.All)(nil),
-			job.ImageGC:              (*gc.GarbageCollector)(nil),
-			job.Replication:          (*replication.Replication)(nil),
-			job.ReplicationScheduler: (*replication.Scheduler)(nil),
-			job.Retention:            (*retention.Job)(nil),
+			job.ImageScanJob:           (*scan.ClairJob)(nil),
+			job.ImageScanAllJob:        (*scan.All)(nil),
+			job.ImageGC:                (*gc.GarbageCollector)(nil),
+			job.Replication:            (*replication.Replication)(nil),
+			job.ReplicationScheduler:   (*replication.Scheduler)(nil),
+			job.Retention:              (*retention.Job)(nil),
+			scheduler.JobNameScheduler: (*scheduler.PeriodicJob)(nil),
+			job.WebhookJob:             (*notification.WebhookJob)(nil),
 		}); err != nil {
 		// exit
 		return nil, err
@@ -258,14 +263,14 @@ func (bs *Bootstrap) loadAndRunRedisWorkerPool(
 }
 
 // Get a redis connection pool
-func (bs *Bootstrap) getRedisPool(redisURL string) *redis.Pool {
+func (bs *Bootstrap) getRedisPool(redisPoolConfig *config.RedisPoolConfig) *redis.Pool {
 	return &redis.Pool{
-		MaxActive: 6,
-		MaxIdle:   6,
-		Wait:      true,
+		MaxIdle:     6,
+		Wait:        true,
+		IdleTimeout: time.Duration(redisPoolConfig.IdleTimeoutSecond) * time.Second,
 		Dial: func() (redis.Conn, error) {
 			return redis.DialURL(
-				redisURL,
+				redisPoolConfig.RedisURL,
 				redis.DialConnectTimeout(dialConnectionTimeout),
 				redis.DialReadTimeout(dialReadTimeout),
 				redis.DialWriteTimeout(dialWriteTimeout),

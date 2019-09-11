@@ -15,15 +15,15 @@
 package action
 
 import (
+	"testing"
+	"time"
+
 	"github.com/goharbor/harbor/src/pkg/retention/dep"
-	"github.com/goharbor/harbor/src/pkg/retention/policy/lwp"
 	"github.com/goharbor/harbor/src/pkg/retention/res"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
-	"testing"
-	"time"
 )
 
 // TestPerformerSuite tests the performer related function
@@ -47,6 +47,7 @@ func (suite *TestPerformerSuite) SetupSuite() {
 			Repository: "harbor",
 			Kind:       "image",
 			Tag:        "latest",
+			Digest:     "latest",
 			PushedTime: time.Now().Unix(),
 			Labels:     []string{"L1", "L2"},
 		},
@@ -55,6 +56,7 @@ func (suite *TestPerformerSuite) SetupSuite() {
 			Repository: "harbor",
 			Kind:       "image",
 			Tag:        "dev",
+			Digest:     "dev",
 			PushedTime: time.Now().Unix(),
 			Labels:     []string{"L3"},
 		},
@@ -81,6 +83,7 @@ func (suite *TestPerformerSuite) TestPerform() {
 			Repository: "harbor",
 			Kind:       "image",
 			Tag:        "latest",
+			Digest:     "latest",
 			PushedTime: time.Now().Unix(),
 			Labels:     []string{"L1", "L2"},
 		},
@@ -106,7 +109,7 @@ func (frc *fakeRetentionClient) Delete(candidate *res.Candidate) error {
 	return nil
 }
 
-// SubmitTask ...
-func (frc *fakeRetentionClient) SubmitTask(taskID int64, repository *res.Repository, meta *lwp.Metadata) (string, error) {
-	return "", errors.New("not implemented")
+// DeleteRepository ...
+func (frc *fakeRetentionClient) DeleteRepository(repo *res.Repository) error {
+	panic("implement me")
 }

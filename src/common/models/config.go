@@ -45,12 +45,14 @@ type SQLite struct {
 
 // PostGreSQL ...
 type PostGreSQL struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
-	Database string `json:"database"`
-	SSLMode  string `json:"sslmode"`
+	Host         string `json:"host"`
+	Port         int    `json:"port"`
+	Username     string `json:"username"`
+	Password     string `json:"password,omitempty"`
+	Database     string `json:"database"`
+	SSLMode      string `json:"sslmode"`
+	MaxIdleConns int    `json:"max_idle_conns"`
+	MaxOpenConns int    `json:"max_open_conns"`
 }
 
 // Email ...
@@ -82,6 +84,12 @@ type OIDCSetting struct {
 	ClientSecret string   `json:"client_secret"`
 	RedirectURL  string   `json:"redirect_url"`
 	Scope        []string `json:"scope"`
+}
+
+// QuotaSetting wraps the settings for Quota
+type QuotaSetting struct {
+	CountPerProject   int64 `json:"count_per_project"`
+	StoragePerProject int64 `json:"storage_per_project"`
 }
 
 // ConfigEntry ...

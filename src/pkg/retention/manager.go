@@ -18,9 +18,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/astaxie/beego/orm"
 	"time"
 
+	"github.com/astaxie/beego/orm"
+	cjob "github.com/goharbor/harbor/src/common/job"
+	"github.com/goharbor/harbor/src/jobservice/job"
 	"github.com/goharbor/harbor/src/pkg/retention/dao"
 	"github.com/goharbor/harbor/src/pkg/retention/dao/models"
 	"github.com/goharbor/harbor/src/pkg/retention/policy"
@@ -41,18 +43,28 @@ type Manager interface {
 	GetPolicy(ID int64) (*policy.Metadata, error)
 	// Create a new retention execution
 	CreateExecution(execution *Execution) (int64, error)
-	// Update the specified execution
-	UpdateExecution(execution *Execution) error
+	// Delete a new retention execution
+	DeleteExecution(int64) error
 	// Get the specified execution
 	GetExecution(eid int64) (*Execution, error)
-	// List execution histories
+	// List executions
 	ListExecutions(policyID int64, query *q.Query) ([]*Execution, error)
+	// GetTotalOfRetentionExecs Count Retention Executions
+	GetTotalOfRetentionExecs(policyID int64) (int64, error)
 	// List tasks histories
 	ListTasks(query ...*q.TaskQuery) ([]*Task, error)
+	// GetTotalOfTasks Count Tasks
+	GetTotalOfTasks(executionID int64) (int64, error)
 	// Create a new retention task
 	CreateTask(task *Task) (int64, error)
 	// Update the specified task
 	UpdateTask(task *Task, cols ...string) error
+	// Update the status of the specified task
+	// The status is updated only when (the statusRevision > the current revision)
+	// or (the the statusRevision = the current revision and status > the current status)
+	UpdateTaskStatus(taskID int64, status string, statusRevision int64) error
+	// Get the task specified by the task ID
+	GetTask(taskID int64) (*Task, error)
 	// Get the log of the specified task
 	GetTaskLog(taskID int64) ([]byte, error)
 }
@@ -65,6 +77,7 @@ type DefaultManager struct {
 func (d *DefaultManager) CreatePolicy(p *policy.Metadata) (int64, error) {
 	p1 := &models.RetentionPolicy{}
 	p1.ScopeLevel = p.Scope.Level
+	p1.ScopeReference = p.Scope.Reference
 	p1.TriggerKind = p.Trigger.Kind
 	data, _ := json.Marshal(p)
 	p1.Data = string(data)
@@ -78,6 +91,7 @@ func (d *DefaultManager) UpdatePolicy(p *policy.Metadata) error {
 	p1 := &models.RetentionPolicy{}
 	p1.ID = p.ID
 	p1.ScopeLevel = p.Scope.Level
+	p1.ScopeReference = p.Scope.Reference
 	p1.TriggerKind = p.Trigger.Kind
 	p.ID = 0
 	data, _ := json.Marshal(p)
@@ -97,7 +111,7 @@ func (d *DefaultManager) GetPolicy(id int64) (*policy.Metadata, error) {
 	p1, err := dao.GetPolicy(id)
 	if err != nil {
 		if err == orm.ErrNoRows {
-			return nil, nil
+			return nil, fmt.Errorf("no such Retention policy with id %v", id)
 		}
 		return nil, err
 	}
@@ -106,6 +120,11 @@ func (d *DefaultManager) GetPolicy(id int64) (*policy.Metadata, error) {
 		return nil, err
 	}
 	p.ID = id
+	if p.Trigger.Settings != nil {
+		if _, ok := p.Trigger.References[policy.TriggerReferencesJobid]; ok {
+			p.Trigger.References[policy.TriggerReferencesJobid] = int64(p.Trigger.References[policy.TriggerReferencesJobid].(float64))
+		}
+	}
 	return p, nil
 }
 
@@ -113,20 +132,15 @@ func (d *DefaultManager) GetPolicy(id int64) (*policy.Metadata, error) {
 func (d *DefaultManager) CreateExecution(execution *Execution) (int64, error) {
 	exec := &models.RetentionExecution{}
 	exec.PolicyID = execution.PolicyID
-	exec.StartTime = time.Now()
+	exec.StartTime = execution.StartTime
 	exec.DryRun = execution.DryRun
-	exec.Status = "Running"
-	exec.Trigger = "manual"
+	exec.Trigger = execution.Trigger
 	return dao.CreateExecution(exec)
 }
 
-// UpdateExecution Update Execution
-func (d *DefaultManager) UpdateExecution(execution *Execution) error {
-	exec := &models.RetentionExecution{}
-	exec.ID = execution.ID
-	exec.EndTime = execution.EndTime
-	exec.Status = execution.Status
-	return dao.UpdateExecution(exec, "end_time", "status")
+// DeleteExecution Delete Execution
+func (d *DefaultManager) DeleteExecution(eid int64) error {
+	return dao.DeleteExecution(eid)
 }
 
 // ListExecutions List Executions
@@ -146,9 +160,16 @@ func (d *DefaultManager) ListExecutions(policyID int64, query *q.Query) ([]*Exec
 		e1.Status = e.Status
 		e1.StartTime = e.StartTime
 		e1.EndTime = e.EndTime
+		e1.Trigger = e.Trigger
+		e1.DryRun = e.DryRun
 		execs1 = append(execs1, e1)
 	}
 	return execs1, nil
+}
+
+// GetTotalOfRetentionExecs Count Executions
+func (d *DefaultManager) GetTotalOfRetentionExecs(policyID int64) (int64, error) {
+	return dao.GetTotalOfRetentionExecs(policyID)
 }
 
 // GetExecution Get Execution
@@ -163,6 +184,8 @@ func (d *DefaultManager) GetExecution(eid int64) (*Execution, error) {
 	e1.Status = e.Status
 	e1.StartTime = e.StartTime
 	e1.EndTime = e.EndTime
+	e1.Trigger = e.Trigger
+	e1.DryRun = e.DryRun
 	return e1, nil
 }
 
@@ -172,10 +195,16 @@ func (d *DefaultManager) CreateTask(task *Task) (int64, error) {
 		return 0, errors.New("nil task")
 	}
 	t := &models.RetentionTask{
-		ExecutionID: task.ExecutionID,
-		Status:      task.Status,
-		StartTime:   task.StartTime,
-		EndTime:     task.EndTime,
+		ExecutionID:    task.ExecutionID,
+		Repository:     task.Repository,
+		JobID:          task.JobID,
+		Status:         task.Status,
+		StatusCode:     task.StatusCode,
+		StatusRevision: task.StatusRevision,
+		StartTime:      task.StartTime,
+		EndTime:        task.EndTime,
+		Total:          task.Total,
+		Retained:       task.Retained,
 	}
 	return dao.CreateTask(t)
 }
@@ -189,17 +218,28 @@ func (d *DefaultManager) ListTasks(query ...*q.TaskQuery) ([]*Task, error) {
 		}
 		return nil, err
 	}
-	tasks := []*Task{}
+	tasks := make([]*Task, 0)
 	for _, t := range ts {
 		tasks = append(tasks, &Task{
-			ID:          t.ID,
-			ExecutionID: t.ExecutionID,
-			Status:      t.Status,
-			StartTime:   t.StartTime,
-			EndTime:     t.EndTime,
+			ID:             t.ID,
+			ExecutionID:    t.ExecutionID,
+			Repository:     t.Repository,
+			JobID:          t.JobID,
+			Status:         t.Status,
+			StatusCode:     t.StatusCode,
+			StatusRevision: t.StatusRevision,
+			StartTime:      t.StartTime,
+			EndTime:        t.EndTime,
+			Total:          t.Total,
+			Retained:       t.Retained,
 		})
 	}
 	return tasks, nil
+}
+
+// GetTotalOfTasks Count tasks
+func (d *DefaultManager) GetTotalOfTasks(executionID int64) (int64, error) {
+	return dao.GetTotalOfTasks(executionID)
 }
 
 // UpdateTask updates the task
@@ -211,17 +251,63 @@ func (d *DefaultManager) UpdateTask(task *Task, cols ...string) error {
 		return fmt.Errorf("invalid task ID: %d", task.ID)
 	}
 	return dao.UpdateTask(&models.RetentionTask{
-		ID:          task.ID,
-		ExecutionID: task.ExecutionID,
-		Status:      task.Status,
-		StartTime:   task.StartTime,
-		EndTime:     task.EndTime,
+		ID:             task.ID,
+		ExecutionID:    task.ExecutionID,
+		Repository:     task.Repository,
+		JobID:          task.JobID,
+		Status:         task.Status,
+		StatusCode:     task.StatusCode,
+		StatusRevision: task.StatusRevision,
+		StartTime:      task.StartTime,
+		EndTime:        task.EndTime,
+		Total:          task.Total,
+		Retained:       task.Retained,
 	}, cols...)
+}
+
+// UpdateTaskStatus updates the status of the specified task
+func (d *DefaultManager) UpdateTaskStatus(taskID int64, status string, statusRevision int64) error {
+	if taskID <= 0 {
+		return fmt.Errorf("invalid task ID: %d", taskID)
+	}
+	st := job.Status(status)
+	return dao.UpdateTaskStatus(taskID, status, st.Code(), statusRevision)
+}
+
+// GetTask returns the task specified by task ID
+func (d *DefaultManager) GetTask(taskID int64) (*Task, error) {
+	if taskID <= 0 {
+		return nil, fmt.Errorf("invalid task ID: %d", taskID)
+	}
+	task, err := dao.GetTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+	return &Task{
+		ID:             task.ID,
+		ExecutionID:    task.ExecutionID,
+		Repository:     task.Repository,
+		JobID:          task.JobID,
+		Status:         task.Status,
+		StatusCode:     task.StatusCode,
+		StatusRevision: task.StatusRevision,
+		StartTime:      task.StartTime,
+		EndTime:        task.EndTime,
+		Total:          task.Total,
+		Retained:       task.Retained,
+	}, nil
 }
 
 // GetTaskLog gets the logs of task
 func (d *DefaultManager) GetTaskLog(taskID int64) ([]byte, error) {
-	panic("implement me")
+	task, err := d.GetTask(taskID)
+	if err != nil {
+		return nil, err
+	}
+	if task == nil {
+		return nil, fmt.Errorf("task %d not found", taskID)
+	}
+	return cjob.GlobalClient.GetJobLog(task.JobID)
 }
 
 // NewManager ...

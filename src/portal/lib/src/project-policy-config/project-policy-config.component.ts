@@ -106,11 +106,12 @@ export class ProjectPolicyConfigComponent implements OnInit {
         this.systemInfoService.getSystemInfo()
             .subscribe(systemInfo => {
                 this.systemInfo = systemInfo;
-                setTimeout(() => {
-                    this.dateSystemInput.nativeElement.parentNode.setAttribute("hidden", "hidden");
-                }, 100);
+                if (this.withClair) {
+                    setTimeout(() => {
+                        this.dateSystemInput.nativeElement.parentNode.setAttribute("hidden", "hidden");
+                    }, 100);
+                }
             } , error => this.errorHandler.error(error));
-
         // retrive project level policy data
         this.retrieve();
         this.getPermission();
@@ -168,6 +169,9 @@ export class ProjectPolicyConfigComponent implements OnInit {
                     }
                     if (!response.cve_whitelist['expires_at']) {
                         response.cve_whitelist['expires_at'] = null;
+                    }
+                    if (!response.metadata.reuse_sys_cve_whitelist) {
+                        response.metadata.reuse_sys_cve_whitelist = "true";
                     }
                     if (response && response.cve_whitelist) {
                         this.projectWhitelist = clone(response.cve_whitelist);

@@ -15,6 +15,7 @@
 package lastx
 
 import (
+	"github.com/goharbor/harbor/src/common/utils"
 	"time"
 
 	"github.com/goharbor/harbor/src/common/utils/log"
@@ -58,34 +59,18 @@ func (e *evaluator) Action() string {
 // New a Evaluator
 func New(params rule.Parameters) rule.Evaluator {
 	if params != nil {
-		if param, ok := params[ParameterX]; ok {
-			if v, ok := param.(int); ok && v >= 0 {
+		if p, ok := params[ParameterX]; ok {
+			if v, ok := utils.ParseJSONInt(p); ok && v >= 0 {
 				return &evaluator{
-					x: v,
+					x: int(v),
 				}
 			}
 		}
 	}
 
-	log.Debugf("default parameter %d used for rule %s", DefaultX, TemplateID)
+	log.Warningf("default parameter %d used for rule %s", DefaultX, TemplateID)
 
 	return &evaluator{
 		x: DefaultX,
 	}
-}
-
-func init() {
-	// Register itself
-	rule.Register(&rule.IndexMeta{
-		TemplateID: TemplateID,
-		Action:     action.Retain,
-		Parameters: []*rule.IndexedParam{
-			{
-				Name:     ParameterX,
-				Type:     "int",
-				Unit:     "days",
-				Required: true,
-			},
-		},
-	}, New)
 }

@@ -53,8 +53,11 @@ const (
 	PostGreSQLPassword               = "postgresql_password"
 	PostGreSQLDatabase               = "postgresql_database"
 	PostGreSQLSSLMode                = "postgresql_sslmode"
+	PostGreSQLMaxIdleConns           = "postgresql_max_idle_conns"
+	PostGreSQLMaxOpenConns           = "postgresql_max_open_conns"
 	SelfRegistration                 = "self_registration"
 	CoreURL                          = "core_url"
+	CoreLocalURL                     = "core_local_url"
 	JobServiceURL                    = "jobservice_url"
 	LDAPURL                          = "ldap_url"
 	LDAPSearchDN                     = "ldap_search_dn"
@@ -128,7 +131,7 @@ const (
 	WithChartMuseum                   = "with_chartmuseum"
 	ChartRepoURL                      = "chart_repository_url"
 	DefaultChartRepoURL               = "http://chartmuseum:9999"
-	DefaultPortalURL                  = "http://portal"
+	DefaultPortalURL                  = "http://portal:8080"
 	DefaultRegistryCtlURL             = "http://registryctl:8080"
 	DefaultClairHealthCheckServerURL  = "http://clair:6061"
 	// Use this prefix to distinguish harbor user, the prefix contains a special character($), so it cannot be registered as a harbor user.
@@ -141,5 +144,17 @@ const (
 	OIDCCallbackPath = "/c/oidc/callback"
 	OIDCLoginPath    = "/c/oidc/login"
 
-	ChartUploadCtxKey = contextKey("chart_upload_event")
+	ChartUploadCtxKey   = contextKey("chart_upload_event")
+	ChartDownloadCtxKey = contextKey("chart_download_event")
+
+	// Global notification enable configuration
+	NotificationEnable = "notification_enable"
+
+	// Quota setting items for project
+	QuotaPerProjectEnable = "quota_per_project_enable"
+	CountPerProject       = "count_per_project"
+	StoragePerProject     = "storage_per_project"
+
+	// ForeignLayer
+	ForeignLayer = "application/vnd.docker.image.rootfs.foreign.diff.tar.gzip"
 )

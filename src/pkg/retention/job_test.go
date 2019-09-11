@@ -16,7 +16,6 @@ package retention
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -26,15 +25,11 @@ import (
 	"github.com/goharbor/harbor/src/pkg/retention/dep"
 	"github.com/goharbor/harbor/src/pkg/retention/policy"
 	"github.com/goharbor/harbor/src/pkg/retention/policy/action"
-	"github.com/goharbor/harbor/src/pkg/retention/policy/alg"
-	"github.com/goharbor/harbor/src/pkg/retention/policy/alg/or"
 	"github.com/goharbor/harbor/src/pkg/retention/policy/lwp"
 	"github.com/goharbor/harbor/src/pkg/retention/policy/rule"
-	"github.com/goharbor/harbor/src/pkg/retention/policy/rule/latestk"
+	"github.com/goharbor/harbor/src/pkg/retention/policy/rule/latestps"
 	"github.com/goharbor/harbor/src/pkg/retention/res"
-	"github.com/goharbor/harbor/src/pkg/retention/res/selectors"
 	"github.com/goharbor/harbor/src/pkg/retention/res/selectors/doublestar"
-	"github.com/goharbor/harbor/src/pkg/retention/res/selectors/label"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -53,18 +48,6 @@ func TestJob(t *testing.T) {
 
 // SetupSuite ...
 func (suite *JobTestSuite) SetupSuite() {
-	alg.Register(alg.AlgorithmOR, or.New)
-	selectors.Register(doublestar.Kind, []string{
-		doublestar.Matches,
-		doublestar.Excludes,
-		doublestar.RepoMatches,
-		doublestar.RepoExcludes,
-		doublestar.NSMatches,
-		doublestar.NSExcludes,
-	}, doublestar.New)
-	selectors.Register(label.Kind, []string{label.With, label.Without}, label.New)
-	action.Register(action.Retain, action.NewRetainAction)
-
 	suite.oldClient = dep.DefaultClient
 	dep.DefaultClient = &fakeRetentionClient{}
 }
@@ -76,11 +59,15 @@ func (suite *JobTestSuite) TearDownSuite() {
 
 func (suite *JobTestSuite) TestRunSuccess() {
 	params := make(job.Parameters)
-	params[ParamRepo] = &res.Repository{
+	params[ParamDryRun] = false
+	repository := &res.Repository{
 		Namespace: "library",
 		Name:      "harbor",
 		Kind:      res.Image,
 	}
+	repoJSON, err := repository.ToJSON()
+	require.Nil(suite.T(), err)
+	params[ParamRepo] = repoJSON
 
 	scopeSelectors := make(map[string][]*rule.Selector)
 	scopeSelectors["project"] = []*rule.Selector{{
@@ -90,22 +77,18 @@ func (suite *JobTestSuite) TestRunSuccess() {
 	}}
 
 	ruleParams := make(rule.Parameters)
-	ruleParams[latestk.ParameterK] = 10
+	ruleParams[latestps.ParameterK] = 10
 
-	params[ParamMeta] = &lwp.Metadata{
+	meta := &lwp.Metadata{
 		Algorithm: policy.AlgorithmOR,
 		Rules: []*rule.Metadata{
 			{
 				ID:         1,
 				Priority:   999,
 				Action:     action.Retain,
-				Template:   latestk.TemplateID,
+				Template:   latestps.TemplateID,
 				Parameters: ruleParams,
 				TagSelectors: []*rule.Selector{{
-					Kind:       label.Kind,
-					Decoration: label.With,
-					Pattern:    "L3",
-				}, {
 					Kind:       doublestar.Kind,
 					Decoration: doublestar.Matches,
 					Pattern:    "**",
@@ -114,11 +97,12 @@ func (suite *JobTestSuite) TestRunSuccess() {
 			},
 		},
 	}
+	metaJSON, err := meta.ToJSON()
+	require.Nil(suite.T(), err)
+	params[ParamMeta] = metaJSON
 
-	j := &Job{
-		client: &fakeRetentionClient{},
-	}
-	err := j.Validate(params)
+	j := &Job{}
+	err = j.Validate(params)
 	require.NoError(suite.T(), err)
 
 	err = j.Run(&fakeJobContext{}, params)
@@ -135,6 +119,7 @@ func (frc *fakeRetentionClient) GetCandidates(repo *res.Repository) ([]*res.Cand
 			Repository:   "harbor",
 			Kind:         "image",
 			Tag:          "latest",
+			Digest:       "latest",
 			PushedTime:   time.Now().Unix() - 11,
 			PulledTime:   time.Now().Unix() - 2,
 			CreationTime: time.Now().Unix() - 10,
@@ -145,6 +130,7 @@ func (frc *fakeRetentionClient) GetCandidates(repo *res.Repository) ([]*res.Cand
 			Repository:   "harbor",
 			Kind:         "image",
 			Tag:          "dev",
+			Digest:       "dev",
 			PushedTime:   time.Now().Unix() - 10,
 			PulledTime:   time.Now().Unix() - 3,
 			CreationTime: time.Now().Unix() - 20,
@@ -159,8 +145,8 @@ func (frc *fakeRetentionClient) Delete(candidate *res.Candidate) error {
 }
 
 // SubmitTask ...
-func (frc *fakeRetentionClient) SubmitTask(taskID int64, repository *res.Repository, meta *lwp.Metadata) (string, error) {
-	return "", errors.New("not implemented")
+func (frc *fakeRetentionClient) DeleteRepository(repo *res.Repository) error {
+	return nil
 }
 
 type fakeLogger struct{}

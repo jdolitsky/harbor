@@ -17,10 +17,18 @@ package models
 import (
 	"strings"
 	"time"
+
+	"github.com/goharbor/harbor/src/pkg/types"
 )
 
-// ProjectTable is the table name for project
-const ProjectTable = "project"
+const (
+	// ProjectTable is the table name for project
+	ProjectTable = "project"
+	// ProjectPublic means project is public
+	ProjectPublic = "public"
+	// ProjectPrivate means project is private
+	ProjectPrivate = "private"
+)
 
 // Project holds the details of a project.
 type Project struct {
@@ -168,6 +176,9 @@ type ProjectRequest struct {
 	Public       *int              `json:"public"` // deprecated, reserved for project creation in replication
 	Metadata     map[string]string `json:"metadata"`
 	CVEWhitelist CVEWhitelist      `json:"cve_whitelist"`
+
+	CountLimit   *int64 `json:"count_limit,omitempty"`
+	StorageLimit *int64 `json:"storage_limit,omitempty"`
 }
 
 // ProjectQueryResult ...
@@ -179,4 +190,20 @@ type ProjectQueryResult struct {
 // TableName is required by beego orm to map Project to table project
 func (p *Project) TableName() string {
 	return ProjectTable
+}
+
+// ProjectSummary ...
+type ProjectSummary struct {
+	RepoCount  int64  `json:"repo_count"`
+	ChartCount uint64 `json:"chart_count"`
+
+	ProjectAdminCount int64 `json:"project_admin_count"`
+	MasterCount       int64 `json:"master_count"`
+	DeveloperCount    int64 `json:"developer_count"`
+	GuestCount        int64 `json:"guest_count"`
+
+	Quota struct {
+		Hard types.ResourceList `json:"hard"`
+		Used types.ResourceList `json:"used"`
+	} `json:"quota"`
 }

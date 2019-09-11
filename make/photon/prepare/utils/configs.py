@@ -2,6 +2,9 @@ import yaml
 from g import versions_file_path
 from .misc import generate_random_string
 
+default_db_max_idle_conns = 2  # NOTE: https://golang.org/pkg/database/sql/#DB.SetMaxIdleConns
+default_db_max_open_conns = 0  # NOTE: https://golang.org/pkg/database/sql/#DB.SetMaxOpenConns
+
 def validate(conf, **kwargs):
     protocol = conf.get("protocol")
     if protocol != "https" and kwargs.get('notary_mode'):
@@ -38,12 +41,12 @@ def validate(conf, **kwargs):
     redis_host = conf.get("redis_host")
     if redis_host is None or len(redis_host) < 1:
         raise Exception(
-            "Error: redis_host in harbor.cfg needs to point to an endpoint of Redis server or cluster.")
+            "Error: redis_host in harbor.yml needs to point to an endpoint of Redis server or cluster.")
 
     redis_port = conf.get("redis_port")
     if redis_host is None or (redis_port < 1 or redis_port > 65535):
         raise Exception(
-            "Error: redis_port in harbor.cfg needs to point to the port of Redis server or cluster.")
+            "Error: redis_port in harbor.yml needs to point to the port of Redis server or cluster.")
 
 
 def parse_versions():
@@ -53,7 +56,7 @@ def parse_versions():
         versions = yaml.load(f)
     return versions
 
-def parse_yaml_config(config_file_path):
+def parse_yaml_config(config_file_path, with_notary, with_clair, with_chartmuseum):
     '''
     :param configs: config_parser object
     :returns: dict of configs
@@ -67,6 +70,7 @@ def parse_yaml_config(config_file_path):
         'registry_url': "http://registry:5000",
         'registry_controller_url': "http://registryctl:8080",
         'core_url': "http://core:8080",
+        'core_local_url': "http://127.0.0.1:8080",
         'token_service_url': "http://core:8080/service/token",
         'jobservice_url': 'http://jobservice:8080',
         'clair_url': 'http://clair:6060',
@@ -111,27 +115,33 @@ def parse_yaml_config(config_file_path):
         config_dict['harbor_db_username'] = 'postgres'
         config_dict['harbor_db_password'] = db_configs.get("password") or ''
         config_dict['harbor_db_sslmode'] = 'disable'
-        # clari db
-        config_dict['clair_db_host'] = 'postgresql'
-        config_dict['clair_db_port'] = 5432
-        config_dict['clair_db_name'] = 'postgres'
-        config_dict['clair_db_username'] = 'postgres'
-        config_dict['clair_db_password'] = db_configs.get("password") or ''
-        config_dict['clair_db_sslmode'] = 'disable'
-        # notary signer
-        config_dict['notary_signer_db_host'] = 'postgresql'
-        config_dict['notary_signer_db_port'] = 5432
-        config_dict['notary_signer_db_name'] = 'notarysigner'
-        config_dict['notary_signer_db_username'] = 'signer'
-        config_dict['notary_signer_db_password'] = 'password'
-        config_dict['notary_signer_db_sslmode'] = 'disable'
-        # notary server
-        config_dict['notary_server_db_host'] = 'postgresql'
-        config_dict['notary_server_db_port'] = 5432
-        config_dict['notary_server_db_name'] = 'notaryserver'
-        config_dict['notary_server_db_username'] = 'server'
-        config_dict['notary_server_db_password'] = 'password'
-        config_dict['notary_server_db_sslmode'] = 'disable'
+        config_dict['harbor_db_max_idle_conns'] = db_configs.get("max_idle_conns") or default_db_max_idle_conns
+        config_dict['harbor_db_max_open_conns'] = db_configs.get("max_open_conns") or default_db_max_open_conns
+
+        if with_clair:
+            # clair db
+            config_dict['clair_db_host'] = 'postgresql'
+            config_dict['clair_db_port'] = 5432
+            config_dict['clair_db_name'] = 'postgres'
+            config_dict['clair_db_username'] = 'postgres'
+            config_dict['clair_db_password'] = db_configs.get("password") or ''
+            config_dict['clair_db_sslmode'] = 'disable'
+
+        if with_notary:
+            # notary signer
+            config_dict['notary_signer_db_host'] = 'postgresql'
+            config_dict['notary_signer_db_port'] = 5432
+            config_dict['notary_signer_db_name'] = 'notarysigner'
+            config_dict['notary_signer_db_username'] = 'signer'
+            config_dict['notary_signer_db_password'] = 'password'
+            config_dict['notary_signer_db_sslmode'] = 'disable'
+            # notary server
+            config_dict['notary_server_db_host'] = 'postgresql'
+            config_dict['notary_server_db_port'] = 5432
+            config_dict['notary_server_db_name'] = 'notaryserver'
+            config_dict['notary_server_db_username'] = 'server'
+            config_dict['notary_server_db_password'] = 'password'
+            config_dict['notary_server_db_sslmode'] = 'disable'
 
 
     # Data path volume
@@ -170,13 +180,18 @@ def parse_yaml_config(config_file_path):
     if storage_config.get('redirect'):
         config_dict['storage_redirect_disabled'] = storage_config['redirect']['disabled']
 
+    # Global proxy configs
+    proxy_config = configs.get('proxy') or {}
+    proxy_components = proxy_config.get('components') or []
+    for proxy_component in proxy_components:
+      config_dict[proxy_component + '_http_proxy'] = proxy_config.get('http_proxy') or ''
+      config_dict[proxy_component + '_https_proxy'] = proxy_config.get('https_proxy') or ''
+      config_dict[proxy_component + '_no_proxy'] = proxy_config.get('no_proxy') or '127.0.0.1,localhost,core,registry'
+
     # Clair configs, optional
     clair_configs = configs.get("clair") or {}
     config_dict['clair_db'] = 'postgres'
     config_dict['clair_updaters_interval'] = clair_configs.get("updaters_interval") or 12
-    config_dict['clair_http_proxy'] = clair_configs.get('http_proxy') or ''
-    config_dict['clair_https_proxy'] = clair_configs.get('https_proxy') or ''
-    config_dict['clair_no_proxy'] = clair_configs.get('no_proxy') or '127.0.0.1,localhost,core,registry'
 
     # Chart configs
     chart_configs = configs.get("chart") or {}
@@ -187,6 +202,9 @@ def parse_yaml_config(config_file_path):
     config_dict['max_job_workers'] = js_config["max_job_workers"]
     config_dict['jobservice_secret'] = generate_random_string(16)
 
+    # notification config
+    notification_config = configs.get('notification') or {}
+    config_dict['notification_webhook_job_max_retry'] = notification_config["webhook_job_max_retry"]
 
     # Log configs
     allowed_levels = ['debug', 'info', 'warning', 'error', 'fatal']
@@ -216,6 +234,7 @@ def parse_yaml_config(config_file_path):
     # external DB, optional, if external_db enabled, it will cover the database config
     external_db_configs = configs.get('external_database') or {}
     if external_db_configs:
+        config_dict['external_database'] = True
         # harbor db
         config_dict['harbor_db_host'] = external_db_configs['harbor']['host']
         config_dict['harbor_db_port'] = external_db_configs['harbor']['port']
@@ -223,32 +242,40 @@ def parse_yaml_config(config_file_path):
         config_dict['harbor_db_username'] = external_db_configs['harbor']['username']
         config_dict['harbor_db_password'] = external_db_configs['harbor']['password']
         config_dict['harbor_db_sslmode'] = external_db_configs['harbor']['ssl_mode']
-        # clair db
-        config_dict['clair_db_host'] = external_db_configs['clair']['host']
-        config_dict['clair_db_port'] = external_db_configs['clair']['port']
-        config_dict['clair_db_name'] = external_db_configs['clair']['db_name']
-        config_dict['clair_db_username'] = external_db_configs['clair']['username']
-        config_dict['clair_db_password'] = external_db_configs['clair']['password']
-        config_dict['clair_db_sslmode'] = external_db_configs['clair']['ssl_mode']
-        # notary signer
-        config_dict['notary_signer_db_host'] = external_db_configs['notary_signer']['host']
-        config_dict['notary_signer_db_port'] = external_db_configs['notary_signer']['port']
-        config_dict['notary_signer_db_name'] = external_db_configs['notary_signer']['db_name']
-        config_dict['notary_signer_db_username'] = external_db_configs['notary_signer']['username']
-        config_dict['notary_signer_db_password'] = external_db_configs['notary_signer']['password']
-        config_dict['notary_signer_db_sslmode'] = external_db_configs['notary_signer']['ssl_mode']
-        # notary server
-        config_dict['notary_server_db_host'] = external_db_configs['notary_server']['host']
-        config_dict['notary_server_db_port'] = external_db_configs['notary_server']['port']
-        config_dict['notary_server_db_name'] = external_db_configs['notary_server']['db_name']
-        config_dict['notary_server_db_username'] = external_db_configs['notary_server']['username']
-        config_dict['notary_server_db_password'] = external_db_configs['notary_server']['password']
-        config_dict['notary_server_db_sslmode'] = external_db_configs['notary_server']['ssl_mode']
+        config_dict['harbor_db_max_idle_conns'] = external_db_configs['harbor'].get("max_idle_conns") or default_db_max_idle_conns
+        config_dict['harbor_db_max_open_conns'] = external_db_configs['harbor'].get("max_open_conns") or default_db_max_open_conns
+
+        if with_clair:
+            # clair db
+            config_dict['clair_db_host'] = external_db_configs['clair']['host']
+            config_dict['clair_db_port'] = external_db_configs['clair']['port']
+            config_dict['clair_db_name'] = external_db_configs['clair']['db_name']
+            config_dict['clair_db_username'] = external_db_configs['clair']['username']
+            config_dict['clair_db_password'] = external_db_configs['clair']['password']
+            config_dict['clair_db_sslmode'] = external_db_configs['clair']['ssl_mode']
+        if with_notary:
+            # notary signer
+            config_dict['notary_signer_db_host'] = external_db_configs['notary_signer']['host']
+            config_dict['notary_signer_db_port'] = external_db_configs['notary_signer']['port']
+            config_dict['notary_signer_db_name'] = external_db_configs['notary_signer']['db_name']
+            config_dict['notary_signer_db_username'] = external_db_configs['notary_signer']['username']
+            config_dict['notary_signer_db_password'] = external_db_configs['notary_signer']['password']
+            config_dict['notary_signer_db_sslmode'] = external_db_configs['notary_signer']['ssl_mode']
+            # notary server
+            config_dict['notary_server_db_host'] = external_db_configs['notary_server']['host']
+            config_dict['notary_server_db_port'] = external_db_configs['notary_server']['port']
+            config_dict['notary_server_db_name'] = external_db_configs['notary_server']['db_name']
+            config_dict['notary_server_db_username'] = external_db_configs['notary_server']['username']
+            config_dict['notary_server_db_password'] = external_db_configs['notary_server']['password']
+            config_dict['notary_server_db_sslmode'] = external_db_configs['notary_server']['ssl_mode']
+    else:
+        config_dict['external_database'] = False
 
 
     # redis config
     redis_configs = configs.get("external_redis")
     if redis_configs:
+        config_dict['external_redis'] = True
         # using external_redis
         config_dict['redis_host'] = redis_configs['host']
         config_dict['redis_port'] = redis_configs['port']
@@ -257,6 +284,7 @@ def parse_yaml_config(config_file_path):
         config_dict['redis_db_index_js'] = redis_configs.get('jobservice_db_index') or 2
         config_dict['redis_db_index_chart'] = redis_configs.get('chartmuseum_db_index') or 3
     else:
+        config_dict['external_redis'] = False
         ## Using local redis
         config_dict['redis_host'] = 'redis'
         config_dict['redis_port'] = 6379

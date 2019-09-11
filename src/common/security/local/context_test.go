@@ -176,12 +176,12 @@ func TestHasPullPerm(t *testing.T) {
 	// public project
 	ctx := NewSecurityContext(nil, pm)
 
-	resource := rbac.NewProjectNamespace("library").Resource(rbac.ResourceRepository)
+	resource := rbac.NewProjectNamespace(1).Resource(rbac.ResourceRepository)
 	assert.True(t, ctx.Can(rbac.ActionPull, resource))
 
 	// private project, unauthenticated
 	ctx = NewSecurityContext(nil, pm)
-	resource = rbac.NewProjectNamespace(private.Name).Resource(rbac.ResourceRepository)
+	resource = rbac.NewProjectNamespace(private.ProjectID).Resource(rbac.ResourceRepository)
 	assert.False(t, ctx.Can(rbac.ActionPull, resource))
 
 	// private project, authenticated, has no perm
@@ -203,7 +203,7 @@ func TestHasPullPerm(t *testing.T) {
 }
 
 func TestHasPushPerm(t *testing.T) {
-	resource := rbac.NewProjectNamespace(private.Name).Resource(rbac.ResourceRepository)
+	resource := rbac.NewProjectNamespace(private.ProjectID).Resource(rbac.ResourceRepository)
 
 	// unauthenticated
 	ctx := NewSecurityContext(nil, pm)
@@ -226,7 +226,7 @@ func TestHasPushPerm(t *testing.T) {
 }
 
 func TestHasPushPullPerm(t *testing.T) {
-	resource := rbac.NewProjectNamespace(private.Name).Resource(rbac.ResourceRepository)
+	resource := rbac.NewProjectNamespace(private.ProjectID).Resource(rbac.ResourceRepository)
 
 	// unauthenticated
 	ctx := NewSecurityContext(nil, pm)
@@ -265,7 +265,7 @@ func TestHasPushPullPermWithGroup(t *testing.T) {
 
 	developer.GroupIDs = []int{userGroups[0].ID}
 
-	resource := rbac.NewProjectNamespace(project.Name).Resource(rbac.ResourceRepository)
+	resource := rbac.NewProjectNamespace(project.ProjectID).Resource(rbac.ResourceRepository)
 
 	ctx := NewSecurityContext(developer, pm)
 	assert.True(t, ctx.Can(rbac.ActionPush, resource))
@@ -404,6 +404,30 @@ func TestSecurityContext_GetMyProjects(t *testing.T) {
 			}
 			if len(got) != tt.wantSize {
 				t.Errorf("SecurityContext.GetMyProjects() = %v, want %v", len(got), tt.wantSize)
+			}
+		})
+	}
+}
+
+func Test_mergeRoles(t *testing.T) {
+	type args struct {
+		rolesA []int
+		rolesB []int
+	}
+	tests := []struct {
+		name string
+		args args
+		want []int
+	}{
+		{"normal", args{[]int{3, 4}, []int{1, 2, 3, 4}}, []int{1, 2, 3, 4}},
+		{"empty", args{[]int{}, []int{}}, []int{}},
+		{"left empty", args{[]int{}, []int{1, 2, 3, 4}}, []int{1, 2, 3, 4}},
+		{"right empty", args{[]int{1, 2, 3, 4}, []int{}}, []int{1, 2, 3, 4}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := mergeRoles(tt.args.rolesA, tt.args.rolesB); !test.CheckSetsEqual(got, tt.want) {
+				t.Errorf("mergeRoles() = %v, want %v", got, tt.want)
 			}
 		})
 	}

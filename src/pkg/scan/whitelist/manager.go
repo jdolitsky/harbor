@@ -17,6 +17,7 @@ package whitelist
 import (
 	"github.com/goharbor/harbor/src/common/dao"
 	"github.com/goharbor/harbor/src/common/models"
+	"github.com/goharbor/harbor/src/common/utils/log"
 	"github.com/goharbor/harbor/src/jobservice/logger"
 )
 
@@ -40,8 +41,9 @@ type defaultManager struct{}
 func (d *defaultManager) CreateEmpty(projectID int64) error {
 	l := models.CVEWhitelist{
 		ProjectID: projectID,
+		Items:     []models.CVEWhitelistItem{},
 	}
-	_, err := dao.UpdateCVEWhitelist(l)
+	_, err := dao.CreateCVEWhitelist(l)
 	if err != nil {
 		logger.Errorf("Failed to create empty CVE whitelist for project: %d, error: %v", projectID, err)
 	}
@@ -60,7 +62,15 @@ func (d *defaultManager) Set(projectID int64, list models.CVEWhitelist) error {
 
 // Get gets the whitelist for given project
 func (d *defaultManager) Get(projectID int64) (*models.CVEWhitelist, error) {
-	return dao.GetCVEWhitelist(projectID)
+	wl, err := dao.GetCVEWhitelist(projectID)
+	if wl == nil && err == nil {
+		log.Debugf("No CVE whitelist found for project %d, returning empty list.", projectID)
+		return &models.CVEWhitelist{ProjectID: projectID, Items: []models.CVEWhitelistItem{}}, nil
+	}
+	if wl.Items == nil {
+		wl.Items = []models.CVEWhitelistItem{}
+	}
+	return wl, err
 }
 
 // SetSys sets the system level whitelist

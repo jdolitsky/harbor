@@ -13,7 +13,7 @@ def prepare_docker_compose(configs, with_clair, with_notary, with_chartmuseum):
     VERSION_TAG = versions.get('VERSION_TAG') or 'dev'
     REGISTRY_VERSION = versions.get('REGISTRY_VERSION') or 'v2.7.1'
     NOTARY_VERSION = versions.get('NOTARY_VERSION') or 'v0.6.1'
-    CLAIR_VERSION = versions.get('CLAIR_VERSION') or 'v2.0.7'
+    CLAIR_VERSION = versions.get('CLAIR_VERSION') or 'v2.0.9'
     CHARTMUSEUM_VERSION = versions.get('CHARTMUSEUM_VERSION') or 'v0.9.0'
 
     rendering_variables = {
@@ -28,6 +28,8 @@ def prepare_docker_compose(configs, with_clair, with_notary, with_chartmuseum):
         'protocol': configs['protocol'],
         'http_port': configs['http_port'],
         'registry_custom_ca_bundle_path': configs['registry_custom_ca_bundle_path'],
+        'external_redis': configs['external_redis'],
+        'external_database': configs['external_database'],
         'with_notary': with_notary,
         'with_clair': with_clair,
         'with_chartmuseum': with_chartmuseum
@@ -54,4 +56,4 @@ def prepare_docker_compose(configs, with_clair, with_notary, with_chartmuseum):
     if log_ep_host:
         rendering_variables['external_log_endpoint'] = True
 
-    render_jinja(docker_compose_template_path, docker_compose_yml_path, **rendering_variables)
+    render_jinja(docker_compose_template_path, docker_compose_yml_path,  mode=0o644, **rendering_variables)

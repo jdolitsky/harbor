@@ -31,12 +31,14 @@ import (
 	"github.com/pkg/errors"
 )
 
+const (
+	actionMarkRetain   = "RETAIN"
+	actionMarkDeletion = "DEL"
+	actionMarkError    = "ERR"
+)
+
 // Job of running retention process
-type Job struct {
-	// client used to talk to core
-	// TODO: REFER THE GLOBAL CLIENT
-	client dep.Client
-}
+type Job struct{}
 
 // MaxFails of the job
 func (pj *Job) MaxFails() uint {
@@ -49,16 +51,14 @@ func (pj *Job) ShouldRetry() bool {
 }
 
 // Validate the parameters
-func (pj *Job) Validate(params job.Parameters) error {
-	if _, err := getParamRepo(params); err != nil {
-		return err
+func (pj *Job) Validate(params job.Parameters) (err error) {
+	if _, err = getParamRepo(params); err == nil {
+		if _, err = getParamMeta(params); err == nil {
+			_, err = getParamDryRun(params)
+		}
 	}
 
-	if _, err := getParamMeta(params); err != nil {
-		return err
-	}
-
-	return nil
+	return
 }
 
 // Run the job
@@ -69,10 +69,11 @@ func (pj *Job) Run(ctx job.Context, params job.Parameters) error {
 	// Parameters have been validated, ignore error checking
 	repo, _ := getParamRepo(params)
 	liteMeta, _ := getParamMeta(params)
+	isDryRun, _ := getParamDryRun(params)
 
 	// Log stage: start
 	repoPath := fmt.Sprintf("%s/%s", repo.Namespace, repo.Name)
-	myLogger.Infof("Run retention process.\n Repository: %s \n Rule Algorithm: %s", repoPath, liteMeta.Algorithm)
+	myLogger.Infof("Run retention process.\n Repository: %s \n Rule Algorithm: %s \n Dry Run: %v", repoPath, liteMeta.Algorithm, isDryRun)
 
 	// Stop check point 1:
 	if isStopped(ctx) {
@@ -81,7 +82,7 @@ func (pj *Job) Run(ctx job.Context, params job.Parameters) error {
 	}
 
 	// Retrieve all the candidates under the specified repository
-	allCandidates, err := pj.client.GetCandidates(repo)
+	allCandidates, err := dep.DefaultClient.GetCandidates(repo)
 	if err != nil {
 		return logError(myLogger, err)
 	}
@@ -91,7 +92,7 @@ func (pj *Job) Run(ctx job.Context, params job.Parameters) error {
 
 	// Build the processor
 	builder := policy.NewBuilder(allCandidates)
-	processor, err := builder.Build(liteMeta)
+	processor, err := builder.Build(liteMeta, isDryRun)
 	if err != nil {
 		return logError(myLogger, err)
 	}
@@ -111,16 +112,29 @@ func (pj *Job) Run(ctx job.Context, params job.Parameters) error {
 	// Log stage: results with table view
 	logResults(myLogger, allCandidates, results)
 
-	// Check in the results
-	bytes, err := json.Marshal(results)
+	// Save retain and total num in DB
+	return saveRetainNum(ctx, results, allCandidates)
+}
+
+func saveRetainNum(ctx job.Context, retained []*res.Result, allCandidates []*res.Candidate) error {
+	var delNum int
+	for _, r := range retained {
+		if r.Error == nil {
+			delNum++
+		}
+	}
+	retainObj := struct {
+		Total    int `json:"total"`
+		Retained int `json:"retained"`
+	}{
+		Total:    len(allCandidates),
+		Retained: len(allCandidates) - delNum,
+	}
+	c, err := json.Marshal(retainObj)
 	if err != nil {
-		return logError(myLogger, err)
+		return err
 	}
-
-	if err := ctx.Checkin(string(bytes)); err != nil {
-		return logError(myLogger, err)
-	}
-
+	_ = ctx.Checkin(string(c))
 	return nil
 }
 
@@ -135,22 +149,23 @@ func logResults(logger logger.Interface, all []*res.Candidate, results []*res.Re
 	op := func(art *res.Candidate) string {
 		if e, exists := hash[art.Hash()]; exists {
 			if e != nil {
-				return "Err"
+				return actionMarkError
 			}
 
-			return "X"
+			return actionMarkDeletion
 		}
 
-		return "√"
+		return actionMarkRetain
 	}
 
 	var buf bytes.Buffer
 
-	data := [][]string{}
+	data := make([][]string, len(all))
 
 	for _, c := range all {
 		row := []string{
-			arn(c),
+			c.Digest,
+			c.Tag,
 			c.Kind,
 			strings.Join(c.Labels, ","),
 			t(c.PushedTime),
@@ -162,13 +177,14 @@ func logResults(logger logger.Interface, all []*res.Candidate, results []*res.Re
 	}
 
 	table := tablewriter.NewWriter(&buf)
-	table.SetHeader([]string{"Artifact", "Kind", "labels", "PushedTime", "PulledTime", "CreatedTime", "Retention"})
+	table.SetAutoFormatHeaders(false)
+	table.SetHeader([]string{"Digest", "Tag", "Kind", "Labels", "PushedTime", "PulledTime", "CreatedTime", "Retention"})
 	table.SetBorders(tablewriter.Border{Left: true, Top: false, Right: true, Bottom: false})
 	table.SetCenterSeparator("|")
 	table.AppendBulk(data)
 	table.Render()
 
-	logger.Infof("%s", buf.String())
+	logger.Infof("\n%s", buf.String())
 
 	// log all the concrete errors if have
 	for _, r := range results {
@@ -183,6 +199,9 @@ func arn(art *res.Candidate) string {
 }
 
 func t(tm int64) string {
+	if tm == 0 {
+		return ""
+	}
 	return time.Unix(tm, 0).Format("2006/01/02 15:04:05")
 }
 
@@ -204,15 +223,34 @@ func logError(logger logger.Interface, err error) error {
 	return wrappedErr
 }
 
+func getParamDryRun(params job.Parameters) (bool, error) {
+	v, ok := params[ParamDryRun]
+	if !ok {
+		return false, errors.Errorf("missing parameter: %s", ParamDryRun)
+	}
+
+	dryRun, ok := v.(bool)
+	if !ok {
+		return false, errors.Errorf("invalid parameter: %s", ParamDryRun)
+	}
+
+	return dryRun, nil
+}
+
 func getParamRepo(params job.Parameters) (*res.Repository, error) {
 	v, ok := params[ParamRepo]
 	if !ok {
 		return nil, errors.Errorf("missing parameter: %s", ParamRepo)
 	}
 
-	repo, ok := v.(*res.Repository)
+	repoJSON, ok := v.(string)
 	if !ok {
 		return nil, errors.Errorf("invalid parameter: %s", ParamRepo)
+	}
+
+	repo := &res.Repository{}
+	if err := repo.FromJSON(repoJSON); err != nil {
+		return nil, errors.Wrap(err, "parse repository from JSON")
 	}
 
 	return repo, nil
@@ -224,9 +262,14 @@ func getParamMeta(params job.Parameters) (*lwp.Metadata, error) {
 		return nil, errors.Errorf("missing parameter: %s", ParamMeta)
 	}
 
-	meta, ok := v.(*lwp.Metadata)
+	metaJSON, ok := v.(string)
 	if !ok {
 		return nil, errors.Errorf("invalid parameter: %s", ParamMeta)
+	}
+
+	meta := &lwp.Metadata{}
+	if err := meta.FromJSON(metaJSON); err != nil {
+		return nil, errors.Wrap(err, "parse retention policy from JSON")
 	}
 
 	return meta, nil

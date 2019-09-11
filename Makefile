@@ -100,7 +100,7 @@ PREPARE_VERSION_NAME=versions
 REGISTRYVERSION=v2.7.1-patch-2819
 NGINXVERSION=$(VERSIONTAG)
 NOTARYVERSION=v0.6.1
-CLAIRVERSION=v2.0.8
+CLAIRVERSION=v2.0.9
 CLAIRDBVERSION=$(VERSIONTAG)
 MIGRATORVERSION=$(VERSIONTAG)
 REDISVERSION=$(VERSIONTAG)
@@ -242,7 +242,7 @@ PACKAGE_ONLINE_PARA=-zcvf harbor-online-installer-$(PKGVERSIONTAG).tgz \
 					$(HARBORPKG)/install.sh \
 					$(HARBORPKG)/harbor.yml
 
-DOCKERCOMPOSE_LIST=-f $(DOCKERCOMPOSEFILEPATH)/$(DOCKERCOMPOSEFILENAME)
+DOCKERCOMPOSE_FILE_OPT=-f $(DOCKERCOMPOSEFILEPATH)/$(DOCKERCOMPOSEFILENAME)
 
 ifeq ($(NOTARYFLAG), true)
 	DOCKERSAVE_PARA+= goharbor/notary-server-photon:$(NOTARYVERSION)-$(VERSIONTAG) goharbor/notary-signer-photon:$(NOTARYVERSION)-$(VERSIONTAG)
@@ -412,17 +412,16 @@ pushimage:
 
 start:
 	@echo "loading harbor images..."
-	@$(DOCKERCOMPOSECMD) $(DOCKERCOMPOSE_LIST) up -d
+	@$(DOCKERCOMPOSECMD) $(DOCKERCOMPOSE_FILE_OPT) up -d
 	@echo "Start complete. You can visit harbor now."
 
 down:
-	@echo "Please make sure to set -e NOTARYFLAG=true/CLAIRFLAG=true/CHARTFLAG=true if you are using Notary/CLAIR/Chartmuseum in Harbor, otherwise the Notary/CLAIR/Chartmuseum containers cannot be stopped automatically."
 	@while [ -z "$$CONTINUE" ]; do \
         read -r -p "Type anything but Y or y to exit. [Y/N]: " CONTINUE; \
     done ; \
     [ $$CONTINUE = "y" ] || [ $$CONTINUE = "Y" ] || (echo "Exiting."; exit 1;)
 	@echo "stoping harbor instance..."
-	@$(DOCKERCOMPOSECMD) $(DOCKERCOMPOSE_LIST) down -v
+	@$(DOCKERCOMPOSECMD) $(DOCKERCOMPOSE_FILE_OPT) down -v
 	@echo "Done."
 
 swagger_client:

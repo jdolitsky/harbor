@@ -76,6 +76,14 @@ func (f *fakeRepositoryManager) ListChartRepositories(projectID int64) ([]*chart
 
 type fakeRetentionManager struct{}
 
+func (f *fakeRetentionManager) GetTotalOfRetentionExecs(policyID int64) (int64, error) {
+	return 0, nil
+}
+
+func (f *fakeRetentionManager) GetTotalOfTasks(executionID int64) (int64, error) {
+	return 0, nil
+}
+
 func (f *fakeRetentionManager) CreatePolicy(p *policy.Metadata) (int64, error) {
 	return 0, nil
 }
@@ -97,13 +105,28 @@ func (f *fakeRetentionManager) UpdateExecution(execution *Execution) error {
 func (f *fakeRetentionManager) GetExecution(eid int64) (*Execution, error) {
 	return nil, nil
 }
+func (f *fakeRetentionManager) DeleteExecution(eid int64) error {
+	return nil
+}
 func (f *fakeRetentionManager) ListTasks(query ...*q.TaskQuery) ([]*Task, error) {
+	return []*Task{
+		{
+			ID:          1,
+			ExecutionID: 1,
+			JobID:       "1",
+		},
+	}, nil
+}
+func (f *fakeRetentionManager) GetTask(taskID int64) (*Task, error) {
 	return nil, nil
 }
 func (f *fakeRetentionManager) CreateTask(task *Task) (int64, error) {
 	return 0, nil
 }
 func (f *fakeRetentionManager) UpdateTask(task *Task, cols ...string) error {
+	return nil
+}
+func (f *fakeRetentionManager) UpdateTaskStatus(int64, string, int64) error {
 	return nil
 }
 func (f *fakeRetentionManager) GetTaskLog(taskID int64) ([]byte, error) {
@@ -128,18 +151,25 @@ type launchTestSuite struct {
 }
 
 func (l *launchTestSuite) SetupTest() {
-	pro := &models.Project{
+	pro1 := &models.Project{
 		ProjectID: 1,
 		Name:      "library",
 	}
+	pro2 := &models.Project{
+		ProjectID: 2,
+		Name:      "test",
+	}
 	l.projectMgr = &fakeProjectManager{
 		projects: []*models.Project{
-			pro,
+			pro1, pro2,
 		}}
 	l.repositoryMgr = &fakeRepositoryManager{
 		imageRepositories: []*models.RepoRecord{
 			{
 				Name: "library/image",
+			},
+			{
+				Name: "test/image",
 			},
 		},
 		chartRepositories: []*chartserver.ChartInfo{
@@ -149,45 +179,45 @@ func (l *launchTestSuite) SetupTest() {
 		},
 	}
 	l.retentionMgr = &fakeRetentionManager{}
-	l.jobserviceClient = &hjob.MockJobClient{}
+	l.jobserviceClient = &hjob.MockJobClient{
+		JobUUID: []string{"1"},
+	}
 }
 
 func (l *launchTestSuite) TestGetProjects() {
 	projects, err := getProjects(l.projectMgr)
 	require.Nil(l.T(), err)
-	assert.Equal(l.T(), 1, len(projects))
+	assert.Equal(l.T(), 2, len(projects))
 	assert.Equal(l.T(), int64(1), projects[0].NamespaceID)
 	assert.Equal(l.T(), "library", projects[0].Namespace)
 }
 
 func (l *launchTestSuite) TestGetRepositories() {
-	repositories, err := getRepositories(l.projectMgr, l.repositoryMgr, 1)
+	repositories, err := getRepositories(l.projectMgr, l.repositoryMgr, 1, true)
 	require.Nil(l.T(), err)
 	assert.Equal(l.T(), 2, len(repositories))
 	assert.Equal(l.T(), "library", repositories[0].Namespace)
 	assert.Equal(l.T(), "image", repositories[0].Repository)
 	assert.Equal(l.T(), "image", repositories[0].Kind)
-	assert.Equal(l.T(), "library", repositories[1].Namespace)
-	assert.Equal(l.T(), "chart", repositories[1].Repository)
-	assert.Equal(l.T(), "chart", repositories[1].Kind)
 }
 
 func (l *launchTestSuite) TestLaunch() {
 	launcher := &launcher{
-		projectMgr:       l.projectMgr,
-		repositoryMgr:    l.repositoryMgr,
-		retentionMgr:     l.retentionMgr,
-		jobserviceClient: l.jobserviceClient,
+		projectMgr:         l.projectMgr,
+		repositoryMgr:      l.repositoryMgr,
+		retentionMgr:       l.retentionMgr,
+		jobserviceClient:   l.jobserviceClient,
+		chartServerEnabled: true,
 	}
 
 	var ply *policy.Metadata
 	// nil policy
-	n, err := launcher.Launch(ply, 1)
+	n, err := launcher.Launch(ply, 1, false)
 	require.NotNil(l.T(), err)
 
 	// nil rules
 	ply = &policy.Metadata{}
-	n, err = launcher.Launch(ply, 1)
+	n, err = launcher.Launch(ply, 1, false)
 	require.Nil(l.T(), err)
 	assert.Equal(l.T(), int64(0), n)
 
@@ -197,7 +227,7 @@ func (l *launchTestSuite) TestLaunch() {
 			{},
 		},
 	}
-	_, err = launcher.Launch(ply, 1)
+	_, err = launcher.Launch(ply, 1, false)
 	require.NotNil(l.T(), err)
 
 	// system scope
@@ -212,7 +242,26 @@ func (l *launchTestSuite) TestLaunch() {
 						{
 							Kind:       "doublestar",
 							Decoration: "nsMatches",
+							Pattern:    "library",
+						},
+					},
+					"repository": {
+						{
+							Kind:       "doublestar",
+							Decoration: "repoMatches",
 							Pattern:    "**",
+						},
+					},
+				},
+			},
+			{
+				Disabled: true,
+				ScopeSelectors: map[string][]*rule.Selector{
+					"project": {
+						{
+							Kind:       "doublestar",
+							Decoration: "nsMatches",
+							Pattern:    "library1",
 						},
 					},
 					"repository": {
@@ -226,9 +275,25 @@ func (l *launchTestSuite) TestLaunch() {
 			},
 		},
 	}
-	n, err = launcher.Launch(ply, 1)
+	n, err = launcher.Launch(ply, 1, false)
 	require.Nil(l.T(), err)
 	assert.Equal(l.T(), int64(2), n)
+}
+
+func (l *launchTestSuite) TestStop() {
+	t := l.T()
+	launcher := &launcher{
+		projectMgr:       l.projectMgr,
+		repositoryMgr:    l.repositoryMgr,
+		retentionMgr:     l.retentionMgr,
+		jobserviceClient: l.jobserviceClient,
+	}
+	// invalid execution ID
+	err := launcher.Stop(0)
+	require.NotNil(t, err)
+
+	err = launcher.Stop(1)
+	require.Nil(t, err)
 }
 
 func TestLaunchTestSuite(t *testing.T) {

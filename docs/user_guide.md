@@ -37,16 +37,19 @@ This guide walks you through the fundamentals of using Harbor. You'll learn how 
 
 ![rbac](img/rbac.png)
 
-Harbor manages images through projects. Users can be added into one project as a member with three different roles:  
+Harbor manages images through projects. Users can be added into one project as a member with one of three different roles:  
 
 * **Guest**: Guest has read-only privilege for a specified project.
 * **Developer**: Developer has read and write privileges for a project.
+* **Master**: Master has elevated permissions beyond those of 'Developer' including the ability to scan images, view replications jobs, and delete images and helm charts. 
 * **ProjectAdmin**: When creating a new project, you will be assigned the "ProjectAdmin" role to the project. Besides read-write privileges, the "ProjectAdmin" also has some management privileges, such as adding and removing members, starting a vulnerability scan.
 
-Besides the above three roles, there are two system-wide roles:  
+Besides the above three roles, there are two system-level roles:  
 
 * **SysAdmin**: "SysAdmin" has the most privileges. In addition to the privileges mentioned above, "SysAdmin" can also list all projects, set an ordinary user as administrator, delete users and set vulnerability scan policy for all images. The public project "library" is also owned by the administrator.  
 * **Anonymous**: When a user is not logged in, the user is considered as an "Anonymous" user. An anonymous user has no access to private projects and has read-only access to public projects.  
+
+See detailed permissions matrix listed here: https://github.com/goharbor/harbor/blob/master/docs/permissions.md
 
 ## User account
 Harbor supports different authentication modes:  
@@ -57,7 +60,7 @@ Harbor supports different authentication modes:
 	
 	A user can register himself/herself in Harbor in this mode. To disable user self-registration, refer to the [installation guide](installation_guide.md) for initial configuration, or disable this feature in [Administrator Options](#administrator-options). When self-registration is disabled, the system administrator can add users into Harbor.  
 	
-	When registering or adding a new user, the username and email must be unique in the Harbor system. The password must contain at least 8 characters with 1 lowercase letter, 1 uppercase letter and 1 numeric character.  
+	When registering or adding a new user, the username and email must be unique in the Harbor system. The password must contain at least 8 characters with 1 lowercase letter, 1 uppercase letter and 1 numeric character.
 	
 	When you forgot your password, you can follow the below steps to reset the password:  
 
@@ -155,7 +158,7 @@ There may be a bit of delay during replication based on the situation of the net
 **Note:** Due to API changes, replication between different versions of Harbor may be broken.
 
 ### Creating a replication rule
-Login as a system administrator user, click `NEW REPLICATION RULE` under `Administration->Replications` and fill in the necessary fields. You can choose different replication modes, [resource filters](#resource-filter) and [trigger modes](#trigger-mode) according to the different requirements. If there is no endpoint available in the list, you need to create one. Click `SAVE` to create a replication rule.  
+Login as a system administrator user, click `NEW REPLICATION RULE` under `Administration->Replications` and fill in the necessary fields. You can choose different replication modes, [resource filters](#resource-filter) and [trigger modes](#trigger-mode) according to the different requirements. If there is no endpoint available in the list, follow the instructions in the [Installation Guide](installation_guide.md) to create one. Click `SAVE` to create a replication rule.  
 
 ![browse project](img/create_rule.png)
 
@@ -191,7 +194,7 @@ Select a replication rule and click `REPLICATE`, the resources which the rule is
 ![browse project](img/start_replicate.png)
 
 ### Listing and stopping replication executions
-Click a rule, the execution records which belong to this rule will be listed. Each record represents the summary of the once execution of the rule. Click `STOP` to stop the executions which are in progress.  
+Click a rule, the execution records which belong to this rule will be listed. Each record represents the summary of one execution of the rule. Click `STOP` to stop the executions which are in progress.  
 
 ![browse project](img/list_stop_executions.png)
 
@@ -573,7 +576,7 @@ Before working, Harbor should be added into the repository list with `helm repo 
 
 With this mode Helm can be made aware of all the charts located in different projects and which are accessible by the currently authenticated user.
 ```
-helm repo add --ca-file ca.crt --cert-file server.crt --key-file server.key --username=admin --password=Passw0rd myrepo https://xx.xx.xx.xx/chartrepo
+helm repo add --ca-file ca.crt --username=admin --password=Passw0rd myrepo https://xx.xx.xx.xx/chartrepo
 ```
 **NOTES:** Providing both ca file and cert files is caused by an issue from helm.
 
@@ -581,7 +584,7 @@ helm repo add --ca-file ca.crt --cert-file server.crt --key-file server.key --us
 
 With this mode, helm can only pull charts in the specified project.
 ```
-helm repo add --ca-file ca.crt --cert-file server.crt --key-file server.key --username=admin --password=Passw0rd myrepo https://xx.xx.xx.xx/chartrepo/myproject
+helm repo add --ca-file ca.crt --username=admin --password=Passw0rd myrepo https://xx.xx.xx.xx/chartrepo/myproject
 ```
 
 #### Push charts to the repository server by CLI
@@ -591,7 +594,7 @@ helm plugin install https://github.com/chartmuseum/helm-push
 ```
 After a successful installation,  run `push` command to upload your charts:
 ```
-helm push --ca-file=ca.crt --key-file=server.key --cert-file=server.crt --username=admin --password=passw0rd chart_repo/hello-helm-0.1.0.tgz myrepo
+helm push --ca-file=ca.crt --username=admin --password=passw0rd chart_repo/hello-helm-0.1.0.tgz myrepo
 ```
 **NOTES:** `push` command does not support pushing a prov file of a signed chart yet.
 
@@ -609,7 +612,7 @@ helm search hello
 ```
 Everything is ready, install the chart to your kubernetes:
 ```
-helm install --ca-file=ca.crt --key-file=server.key --cert-file=server.crt --username=admin --password=Passw0rd --version 0.1.10 repo248/chart_repo/hello-helm
+helm install --ca-file=ca.crt --username=admin --password=Passw0rd --version 0.1.10 repo248/chart_repo/hello-helm
 ```
 
 For other more helm commands like how to sign a chart, please refer to the [helm doc](https://docs.helm.sh/helm/#helm).

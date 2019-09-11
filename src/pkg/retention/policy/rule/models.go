@@ -14,13 +14,20 @@
 
 package rule
 
+import (
+	"github.com/astaxie/beego/validation"
+)
+
 // Metadata of the retention rule
 type Metadata struct {
 	// UUID of rule
 	ID int `json:"id"`
 
 	// Priority of rule when doing calculating
-	Priority int `json:"priority" valid:"Required"`
+	Priority int `json:"priority"`
+
+	// Disabled rule
+	Disabled bool `json:"disabled"`
 
 	// Action of the rule performs
 	// "retain"
@@ -30,7 +37,7 @@ type Metadata struct {
 	Template string `json:"template" valid:"Required"`
 
 	// The parameters of this rule
-	Parameters Parameters `json:"params"`
+	Parameters Parameters `json:"params" valid:"Required"`
 
 	// Selector attached to the rule for filtering tags
 	TagSelectors []*Selector `json:"tag_selectors" valid:"Required"`
@@ -39,14 +46,30 @@ type Metadata struct {
 	ScopeSelectors map[string][]*Selector `json:"scope_selectors" valid:"Required"`
 }
 
+// Valid Valid
+func (m *Metadata) Valid(v *validation.Validation) {
+	for _, ts := range m.TagSelectors {
+		if pass, _ := v.Valid(ts); !pass {
+			return
+		}
+	}
+	for _, ss := range m.ScopeSelectors {
+		for _, s := range ss {
+			if pass, _ := v.Valid(s); !pass {
+				return
+			}
+		}
+	}
+}
+
 // Selector to narrow down the list
 type Selector struct {
 	// Kind of the selector
-	// "regularExpression" or "label"
-	Kind string `json:"kind" valid:"Required"`
+	// "doublestar" or "label"
+	Kind string `json:"kind" valid:"Required;Match(doublestar)"`
 
 	// Decorated the selector
-	// for "regularExpression" : "matches" and "excludes"
+	// for "doublestar" : "matching" and "excluding"
 	// for "label" : "with" and "without"
 	Decoration string `json:"decoration" valid:"Required"`
 

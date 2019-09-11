@@ -87,6 +87,7 @@ export class Configuration {
     token_expiration: NumberValueItem;
     scan_all_policy: ComplexValueItem;
     read_only: BoolValueItem;
+    notification_enable: BoolValueItem;
     http_authproxy_endpoint?: StringValueItem;
     http_authproxy_tokenreview_endpoint?: StringValueItem;
     http_authproxy_verify_cert?: BoolValueItem;
@@ -97,6 +98,8 @@ export class Configuration {
     oidc_client_secret?: StringValueItem;
     oidc_verify_cert?: BoolValueItem;
     oidc_scope?: StringValueItem;
+    count_per_project: NumberValueItem;
+    storage_per_project: NumberValueItem;
     public constructor() {
         this.auth_mode = new StringValueItem("db_auth", true);
         this.project_creation_restriction = new StringValueItem("everyone", true);
@@ -138,6 +141,7 @@ export class Configuration {
             }
         }, true);
         this.read_only = new BoolValueItem(false, true);
+        this.notification_enable = new BoolValueItem(false, true);
         this.http_authproxy_endpoint = new StringValueItem("", true);
         this.http_authproxy_tokenreview_endpoint = new StringValueItem("", true);
         this.http_authproxy_verify_cert = new BoolValueItem(false, true);
@@ -148,5 +152,7 @@ export class Configuration {
         this.oidc_client_secret = new StringValueItem('', true);
         this.oidc_verify_cert = new BoolValueItem(false, true);
         this.oidc_scope = new StringValueItem('', true);
+        this.count_per_project = new NumberValueItem(-1, true);
+        this.storage_per_project = new NumberValueItem(-1, true);
     }
 }

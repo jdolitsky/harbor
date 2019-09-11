@@ -39,7 +39,7 @@ def _random_name(prefix):
 def _get_id_from_header(header):
     try:
         location = header["Location"]
-        return location.split("/")[-1]
+        return int(location.split("/")[-1])
     except Exception:
         return None
 
@@ -51,7 +51,7 @@ def _get_string_from_unicode(udata):
     return result
 
 class Base:
-    def __init__(self, 
+    def __init__(self,
         server = Server(endpoint="http://localhost:8080/api", verify_ssl=False),
         credential = Credential(type="basic_auth", username="admin", password="Harbor12345"),
         debug = True):

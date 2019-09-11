@@ -137,7 +137,11 @@ export class CreateEditRuleComponent implements OnInit, OnDestroy {
         }
       });
   }
-
+  trimText(event) {
+    if (event.target.value) {
+      event.target.value = event.target.value.trim();
+    }
+  }
   equals(c1: any, c2: any): boolean {
     return c1 && c2 ? c1.id === c2.id : c1 === c2;
   }
@@ -430,7 +434,7 @@ export class CreateEditRuleComponent implements OnInit, OnDestroy {
       // get supportedFilterLabels labels from supportedFilters
       this.getLabelListFromAdapter(element);
       // only when edit replication rule
-      if (ruleInfo && this.supportedFilterLabels.length) {
+      if (ruleInfo && ruleInfo.filters && this.supportedFilterLabels.length ) {
         this.getLabelListFromRuleInfo(ruleInfo);
       }
     });
